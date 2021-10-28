@@ -11,6 +11,7 @@ import android.media.projection.MediaProjectionManager;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
+import android.view.Surface;
 
 import androidx.activity.result.ActivityResult;
 import androidx.annotation.NonNull;
@@ -28,6 +29,7 @@ public class ScreenRecorder {
     private MediaProjectionManager manager;
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
+    private Surface surface;
 
     public int getSeconds() {
         return seconds;
@@ -58,6 +60,8 @@ public class ScreenRecorder {
 
             @Override
             public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
+                Log.d(TAG, "Output buffer available, index = " + index + ", info = " + info);
+
                 ByteBuffer encodedData = mediaCodec.getOutputBuffer(index);
                 encodedData.position(info.offset);
                 encodedData.limit(info.offset + info.size);
@@ -79,12 +83,13 @@ public class ScreenRecorder {
             }
         });
         mediaCodec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        surface = mediaCodec.createInputSurface();
         mediaCodec.start();
 
         virtualDisplay = projection.createVirtualDisplay(
             "Record", metrics.widthPixels, metrics.heightPixels,
             metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            mediaCodec.createInputSurface(), null, null
+            surface, null, null
         );
     }
 
@@ -100,15 +105,15 @@ public class ScreenRecorder {
         return mediaFormat;
     }
 
-    public Intent createScreenCaptureIntent() {
-        return manager.createScreenCaptureIntent();
-    }
-
     public void stopRecording() {
         if (projection != null) {
             projection.stop();
         }
         projection = null;
+        if (surface != null) {
+            surface.release();
+        }
+        surface = null;
         if (virtualDisplay != null) {
             virtualDisplay.release();
         }
