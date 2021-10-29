@@ -2,6 +2,7 @@ package meugeninua.screenrecording;
 
 import android.media.MediaCodec;
 import android.media.MediaMuxer;
+import android.util.Log;
 
 import java.nio.ByteBuffer;
 import java.util.Deque;
@@ -11,12 +12,14 @@ import java.util.concurrent.TimeUnit;
 public class CyclicVideoBuffer {
 
     private final Deque<Data> deque = new LinkedList<>();
-    private final long timeLimitUs;
-    private long videoStartedAtUs = -1L;
-    private long totalTimeUs = 0L;
+    private final long timeLimitMs;
+    private long prevTimeMs = -1L;
+    private long totalTimeMs = 0L;
+    private Data firstItem = null;
 
     public CyclicVideoBuffer(int secondsLimit) {
-        this.timeLimitUs = TimeUnit.SECONDS.toMicros(secondsLimit);
+        this.timeLimitMs = TimeUnit.SECONDS.toMillis(secondsLimit);
+        prevTimeMs = System.currentTimeMillis();
     }
 
     public void add(ByteBuffer buffer, MediaCodec.BufferInfo info) {
@@ -24,20 +27,32 @@ public class CyclicVideoBuffer {
         byte[] bytes = new byte[buffer.remaining()];
         buffer.get(bytes);
 
-        deque.addLast(new Data(bytes, info));
-        if (videoStartedAtUs < 0) {
-            videoStartedAtUs = info.presentationTimeUs;
+        Log.d("CyclicVideoBuffer", "prevTimeMs = " + prevTimeMs
+            + ", currentTimeMs = " + System.currentTimeMillis());
+        Data data = new Data(bytes, info, System.currentTimeMillis() - prevTimeMs);
+        if (firstItem == null) {
+            firstItem = data;
+            return;
         }
-        totalTimeUs += (info.presentationTimeUs - videoStartedAtUs);
-        while (!deque.isEmpty() && totalTimeUs > timeLimitUs) {
+        prevTimeMs = System.currentTimeMillis();
+        deque.addLast(data);
+        totalTimeMs += data.delayTimeMs;
+        Log.d("CyclicVideoBuffer", "totalTimeUs = " + totalTimeMs
+            + ", delayTimeUs = " + data.delayTimeMs
+            + ", timeLimitUs = " + timeLimitMs);
+        while (!deque.isEmpty() && totalTimeMs > timeLimitMs) {
             Data removed = deque.removeFirst();
-            totalTimeUs -= (removed.info.presentationTimeUs - videoStartedAtUs);
+            totalTimeMs -= removed.delayTimeMs;
         }
     }
 
     public void writeTo(MediaMuxer muxer, int trackIndex) {
+        Log.d("CyclicVideoBuffer", "deque.size() = " + deque.size());
+        if (firstItem != null) {
+            firstItem.writeTo(muxer, trackIndex);
+        }
         for (Data data : deque) {
-            muxer.writeSampleData(trackIndex, ByteBuffer.wrap(data.buffer), data.info);
+            data.writeTo(muxer, trackIndex);
         }
     }
 
@@ -45,10 +60,16 @@ public class CyclicVideoBuffer {
 
         final byte[] buffer;
         final MediaCodec.BufferInfo info;
+        final long delayTimeMs;
 
-        public Data(byte[] buffer, MediaCodec.BufferInfo info) {
+        public Data(byte[] buffer, MediaCodec.BufferInfo info, long delayTimeMs) {
             this.buffer = buffer;
             this.info = info;
+            this.delayTimeMs = delayTimeMs;
+        }
+
+        public void writeTo(MediaMuxer muxer, int trackIndex) {
+            muxer.writeSampleData(trackIndex, ByteBuffer.wrap(buffer), info);
         }
     }
 }
