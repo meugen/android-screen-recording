@@ -39,6 +39,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             screenRecorderInterface = IScreenRecorderInterface.Stub.asInterface(service);
+            reloadState();
         }
 
         @Override
@@ -59,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        startService(ScreenRecorderService.buildIntent(this));
 
         LocalBroadcastManager.getInstance(this).registerReceiver(
             resultReceiver, ScreenRecorderService.Result.buildIntentFilter()
@@ -88,7 +90,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
-        startService(ScreenRecorderService.buildIntent(this));
         bindService(
             ScreenRecorderService.buildIntent(this),
             connection,
@@ -108,7 +109,23 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(resultReceiver);
     }
 
+    private void reloadState() {
+        try {
+            ScreenRecorderState state = screenRecorderInterface.currentState();
+            setupButtonEnabled(state);
+        } catch (Throwable e) {
+            Log.e(getClass().getSimpleName(), e.getMessage(), e);
+        }
+    }
+
+    private void setupButtonEnabled(ScreenRecorderState state) {
+        binding.startButton.setEnabled(state.isCanStart());
+        binding.stopButton.setEnabled(state.isCanStop());
+        binding.flushButton.setEnabled(state.isCanFlush());
+    }
+
     private void onGotRecordedPath(String path) {
+        reloadState();
         binding.videoView.setVideoPath(path);
         binding.videoView.start();
     }
@@ -131,9 +148,10 @@ public class MainActivity extends AppCompatActivity {
     private void onContinueRecording(ActivityResult result) {
         if (result.getResultCode() != RESULT_OK) return;
         try {
-            screenRecorderInterface.start(
+            ScreenRecorderState state = screenRecorderInterface.start(
                 new ScreenRecorderParams(seconds, result)
             );
+            setupButtonEnabled(state);
         } catch (Throwable e) {
             Log.e(getClass().getSimpleName(), e.getMessage(), e);
         }
@@ -160,7 +178,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void onStopRecording() {
         try {
-            screenRecorderInterface.stop();
+            ScreenRecorderState state = screenRecorderInterface.stop();
+            setupButtonEnabled(state);
         } catch (Throwable e) {
             Log.e(getClass().getSimpleName(), e.getMessage(), e);
         }
@@ -168,7 +187,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void onFlushRecordedVideo() {
         try {
-            screenRecorderInterface.flush();
+            ScreenRecorderState state = screenRecorderInterface.flush();
+            setupButtonEnabled(state);
         } catch (Throwable e) {
             Log.e(getClass().getSimpleName(), e.getMessage(), e);
         }

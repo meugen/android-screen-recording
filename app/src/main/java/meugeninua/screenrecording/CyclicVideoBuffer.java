@@ -37,9 +37,9 @@ public class CyclicVideoBuffer {
         prevTimeMs = System.currentTimeMillis();
         deque.addLast(data);
         totalTimeMs += data.delayTimeMs;
-        Log.d("CyclicVideoBuffer", "totalTimeUs = " + totalTimeMs
-            + ", delayTimeUs = " + data.delayTimeMs
-            + ", timeLimitUs = " + timeLimitMs);
+        Log.d("CyclicVideoBuffer", "totalTimeMs = " + totalTimeMs
+            + ", delayTimeMs = " + data.delayTimeMs
+            + ", timeLimitMs = " + timeLimitMs);
         while (!deque.isEmpty() && totalTimeMs > timeLimitMs) {
             Data removed = deque.removeFirst();
             totalTimeMs -= removed.delayTimeMs;

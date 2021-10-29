@@ -44,9 +44,14 @@ public class ScreenRecorderService extends Service {
     private HandlerThread handlerThread;
     private Handler handler;
 
+    private volatile boolean canStart;
+    private volatile boolean canStop;
+    private volatile boolean canFlush;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        setupCurrentState(true, false, false);
         screenRecorder = ScreenRecorder.INSTANCE;
         handlerThread = new HandlerThread(getClass().getSimpleName());
         handlerThread.start();
@@ -56,6 +61,16 @@ public class ScreenRecorderService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         return START_NOT_STICKY;
+    }
+
+    private void setupCurrentState(boolean canStart, boolean canStop, boolean canFlush) {
+        this.canStart = canStart;
+        this.canStop = canStop;
+        this.canFlush = canFlush;
+    }
+
+    private ScreenRecorderState buildCurrentState() {
+        return new ScreenRecorderState(canStart, canStop, canFlush);
     }
 
     private void createChannelIfNeeded() {
@@ -93,20 +108,31 @@ public class ScreenRecorderService extends Service {
         }
     }
 
-    private void startRecording(ScreenRecorderParams params) {
+    private void startRecording(ScreenRecorderParams params) throws RemoteException {
+        if (!canStart) {
+            throw new RemoteException("Can't process start recording");
+        }
         startForeground();
 
         handler.postDelayed(
             () -> startMediaProjection(params), 100L
         );
+        setupCurrentState(false, true, false);
     }
 
-    private void stopRecording() {
+    private void stopRecording() throws RemoteException {
+        if (!canStop) {
+            throw new RemoteException("Can't process stop recording");
+        }
         screenRecorder.stopRecording();
         stopForeground(true);
+        setupCurrentState(false, false, true);
     }
 
-    private void flushRecording() {
+    private void flushRecording() throws RemoteException {
+        if (!canFlush) {
+            throw new RemoteException("Can't process flush recorded video");
+        }
         handler.post(this::flushRecordingAsync);
     }
 
@@ -117,6 +143,7 @@ public class ScreenRecorderService extends Service {
 
         try {
             screenRecorder.flashTo(filePath);
+            setupCurrentState(true, false, false);
             LocalBroadcastManager.getInstance(this)
                 .sendBroadcast(new Result(filePath).buildIntent());
             Log.d(ScreenRecorder.TAG, "Recorded to path: " + filePath);
@@ -191,18 +218,26 @@ public class ScreenRecorderService extends Service {
     private class ScreenRecorderBinder extends IScreenRecorderInterface.Stub {
 
         @Override
-        public void start(ScreenRecorderParams params) throws RemoteException {
+        public ScreenRecorderState currentState() throws RemoteException {
+            return buildCurrentState();
+        }
+
+        @Override
+        public ScreenRecorderState start(ScreenRecorderParams params) throws RemoteException {
             startRecording(params);
+            return currentState();
         }
 
         @Override
-        public void stop() throws RemoteException {
+        public ScreenRecorderState stop() throws RemoteException {
             stopRecording();
+            return currentState();
         }
 
         @Override
-        public void flush() throws RemoteException {
+        public ScreenRecorderState flush() throws RemoteException {
             flushRecording();
+            return currentState();
         }
     }
 }

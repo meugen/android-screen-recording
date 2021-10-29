@@ -2,10 +2,12 @@
 package meugeninua.screenrecording;
 
 import meugeninua.screenrecording.ScreenRecorderParams;
+import meugeninua.screenrecording.ScreenRecorderState;
 
 interface IScreenRecorderInterface {
 
-    void start(in ScreenRecorderParams params);
-    void stop();
-    void flush();
+    ScreenRecorderState currentState();
+    ScreenRecorderState start(in ScreenRecorderParams params);
+    ScreenRecorderState stop();
+    ScreenRecorderState flush();
 }
