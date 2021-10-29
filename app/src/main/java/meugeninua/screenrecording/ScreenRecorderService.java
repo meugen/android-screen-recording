@@ -5,11 +5,13 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.hardware.display.DisplayManager;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
@@ -21,6 +23,7 @@ import androidx.core.app.NotificationChannelCompat;
 import androidx.core.app.NotificationChannelGroupCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import java.io.IOException;
 
@@ -37,11 +40,14 @@ public class ScreenRecorderService extends Service {
     }
 
     private ScreenRecorder screenRecorder;
+    private HandlerThread handlerThread;
 
     @Override
     public void onCreate() {
         super.onCreate();
         screenRecorder = ScreenRecorder.INSTANCE;
+        handlerThread = new HandlerThread(getClass().getSimpleName());
+        handlerThread.start();
     }
 
     private void createChannelIfNeeded() {
@@ -79,19 +85,22 @@ public class ScreenRecorderService extends Service {
             startForeground(SERVICE_ID, notification);
         }
 
-        new Handler(Looper.getMainLooper()).postDelayed(
-            () -> startMediaProjection(intent), 100L
+        Handler handler = new Handler(handlerThread.getLooper());
+        handler.postDelayed(
+            () -> startMediaProjection(intent, handler), 100L
         );
 
         return START_NOT_STICKY;
     }
 
-    private void startMediaProjection(Intent intent) {
+    private void startMediaProjection(Intent intent, Handler handler) {
         Params params = new Params(intent);
         screenRecorder.setSeconds(params.getSeconds());
         screenRecorder.setManager((MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE));
         try {
-            screenRecorder.continueRecording(params.getActivityResult(), getDefaultDisplay());
+            screenRecorder.continueRecording(
+                this, params.getActivityResult(), getDefaultDisplay(), handler
+            );
         } catch (IOException e) {
             Log.e(ScreenRecorder.TAG, e.getMessage(), e);
             stopSelf();
@@ -112,7 +121,14 @@ public class ScreenRecorderService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        screenRecorder.stopRecording();
+        String filePath = screenRecorder.stopRecording();
+        Log.d(ScreenRecorder.TAG, "File recorded: " + filePath);
+        handlerThread.quitSafely();
+        handlerThread = null;
+
+        Result result = new Result(filePath);
+        LocalBroadcastManager.getInstance(this)
+            .sendBroadcast(result.buildIntent());
     }
 
     public static class Params {
@@ -149,6 +165,38 @@ public class ScreenRecorderService extends Service {
             Intent intent = new Intent(context, ScreenRecorderService.class);
             intent.putExtra(EXTRA_SECONDS, seconds);
             intent.putExtra(EXTRA_ACTIVITY_RESULT, activityResult);
+            return intent;
+        }
+    }
+
+    public static class Result {
+
+        private static final String ACTION = ScreenRecorderService.class.getName();
+        private static final String EXTRA_PATH = "path";
+
+        public static IntentFilter buildIntentFilter() {
+            return new IntentFilter(ACTION);
+        }
+
+        private final String path;
+
+        public Result(String path) {
+            this.path = path;
+        }
+
+        public Result(Intent intent) {
+            this(
+                intent.getStringExtra(EXTRA_PATH)
+            );
+        }
+
+        public String getPath() {
+            return path;
+        }
+
+        public Intent buildIntent() {
+            Intent intent = new Intent(ACTION);
+            intent.putExtra(EXTRA_PATH, path);
             return intent;
         }
     }

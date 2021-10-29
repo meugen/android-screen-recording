@@ -1,13 +1,18 @@
 package meugeninua.screenrecording;
 
+import android.content.Context;
 import android.content.Intent;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
+import android.media.MediaMuxer;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
+import android.os.Build;
+import android.os.Environment;
+import android.os.Handler;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
@@ -16,8 +21,10 @@ import android.view.Surface;
 import androidx.activity.result.ActivityResult;
 import androidx.annotation.NonNull;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.UUID;
 
 public class ScreenRecorder {
 
@@ -30,10 +37,9 @@ public class ScreenRecorder {
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
     private Surface surface;
-
-    public int getSeconds() {
-        return seconds;
-    }
+    private MediaCodec mediaCodec;
+    private MediaMuxer mediaMuxer;
+    private String filePath;
 
     public void setSeconds(int seconds) {
         this.seconds = seconds;
@@ -43,7 +49,9 @@ public class ScreenRecorder {
         this.manager = manager;
     }
 
-    public void continueRecording(ActivityResult result, Display display) throws IOException {
+    public void continueRecording(
+        Context context, ActivityResult result, Display display, Handler handler
+    ) throws IOException {
         this.projection = manager.getMediaProjection(
             result.getResultCode(), result.getData()
         );
@@ -51,37 +59,19 @@ public class ScreenRecorder {
         display.getMetrics(metrics);
         MediaFormat mediaFormat = buildMediaFormat(metrics.widthPixels, metrics.heightPixels);
 
-        MediaCodec mediaCodec = MediaCodec.createEncoderByType(MIME_TYPE);
-        mediaCodec.setCallback(new MediaCodec.Callback() {
-            @Override
-            public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
-                Log.d(TAG, "Input buffer available, index = " + index);
-            }
+        File file = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES);
+        file = new File(file, UUID.randomUUID().toString());
+        filePath = file.getPath();
+        mediaMuxer = new MediaMuxer(filePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        mediaMuxer.addTrack(mediaFormat);
+        mediaMuxer.start();
 
-            @Override
-            public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
-                Log.d(TAG, "Output buffer available, index = " + index + ", info = " + info);
-
-                ByteBuffer encodedData = mediaCodec.getOutputBuffer(index);
-                encodedData.position(info.offset);
-                encodedData.limit(info.offset + info.size);
-
-                byte[] data = new byte[encodedData.remaining()];
-                encodedData.get(data);
-
-                mediaCodec.releaseOutputBuffer(index, false);
-            }
-
-            @Override
-            public void onError(@NonNull MediaCodec codec, @NonNull MediaCodec.CodecException e) {
-                Log.e(TAG, e.getMessage(), e);
-            }
-
-            @Override
-            public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
-                Log.d(TAG, "Output format changed to " + format);
-            }
-        });
+        mediaCodec = MediaCodec.createEncoderByType(MIME_TYPE);
+        setupMediaCodecCallback(
+            mediaCodec,
+            new MediaCodecCallback(mediaCodec, mediaMuxer),
+            handler
+        );
         mediaCodec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
         surface = mediaCodec.createInputSurface();
         mediaCodec.start();
@@ -89,8 +79,18 @@ public class ScreenRecorder {
         virtualDisplay = projection.createVirtualDisplay(
             "Record", metrics.widthPixels, metrics.heightPixels,
             metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            surface, null, null
+            surface, null, handler
         );
+    }
+
+    private void setupMediaCodecCallback(
+        MediaCodec codec, MediaCodec.Callback callback, Handler handler
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            codec.setCallback(callback, handler);
+        } else {
+            codec.setCallback(callback);
+        }
     }
 
     private MediaFormat buildMediaFormat(int width, int height) {
@@ -105,7 +105,7 @@ public class ScreenRecorder {
         return mediaFormat;
     }
 
-    public void stopRecording() {
+    public String stopRecording() {
         if (projection != null) {
             projection.stop();
         }
@@ -118,6 +118,56 @@ public class ScreenRecorder {
             virtualDisplay.release();
         }
         virtualDisplay = null;
+        if (mediaCodec != null) {
+            mediaCodec.stop();
+            mediaCodec.release();
+        }
+        mediaCodec = null;
+        if (mediaMuxer != null) {
+            mediaMuxer.stop();
+            mediaMuxer.release();
+        }
+        mediaMuxer = null;
         manager = null;
+
+        return filePath;
+    }
+
+    private static class MediaCodecCallback extends MediaCodec.Callback {
+
+        private final MediaCodec mediaCodec;
+        private final MediaMuxer mediaMuxer;
+
+        public MediaCodecCallback(MediaCodec mediaCodec, MediaMuxer mediaMuxer) {
+            this.mediaCodec = mediaCodec;
+            this.mediaMuxer = mediaMuxer;
+        }
+
+        @Override
+        public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
+            Log.d(TAG, "Input buffer available, index = " + index);
+        }
+
+        @Override
+        public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
+            Log.d(TAG, "Output buffer available, index = " + index + ", info = " + info);
+
+            ByteBuffer encodedData = mediaCodec.getOutputBuffer(index);
+            encodedData.position(info.offset);
+            encodedData.limit(info.offset + info.size);
+
+            mediaMuxer.writeSampleData(0, encodedData, info);
+            mediaCodec.releaseOutputBuffer(index, false);
+        }
+
+        @Override
+        public void onError(@NonNull MediaCodec codec, @NonNull MediaCodec.CodecException e) {
+            Log.e(TAG, e.getMessage(), e);
+        }
+
+        @Override
+        public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
+            Log.d(TAG, "Output format changed to " + format);
+        }
     }
 }
