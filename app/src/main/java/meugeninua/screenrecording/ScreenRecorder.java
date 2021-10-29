@@ -1,7 +1,5 @@
 package meugeninua.screenrecording;
 
-import android.content.Context;
-import android.content.Intent;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.MediaCodec;
@@ -11,7 +9,6 @@ import android.media.MediaMuxer;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
-import android.os.Environment;
 import android.os.Handler;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -21,10 +18,8 @@ import android.view.Surface;
 import androidx.activity.result.ActivityResult;
 import androidx.annotation.NonNull;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.UUID;
 
 public class ScreenRecorder {
 
@@ -32,17 +27,17 @@ public class ScreenRecorder {
     public static final String TAG = ScreenRecorder.class.getSimpleName();
     private static final String MIME_TYPE = "video/avc";
 
-    private int seconds;
+    private CyclicVideoBuffer buffer;
+    private MediaFormat mediaFormat;
+
     private MediaProjectionManager manager;
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
     private Surface surface;
     private MediaCodec mediaCodec;
-    private MediaMuxer mediaMuxer;
-    private String filePath;
 
     public void setSeconds(int seconds) {
-        this.seconds = seconds;
+        this.buffer = new CyclicVideoBuffer(seconds);
     }
 
     public void setManager(MediaProjectionManager manager) {
@@ -50,26 +45,19 @@ public class ScreenRecorder {
     }
 
     public void continueRecording(
-        Context context, ActivityResult result, Display display, Handler handler
+        ActivityResult result, Display display, Handler handler
     ) throws IOException {
         this.projection = manager.getMediaProjection(
             result.getResultCode(), result.getData()
         );
         DisplayMetrics metrics = new DisplayMetrics();
         display.getMetrics(metrics);
-        MediaFormat mediaFormat = buildMediaFormat(metrics.widthPixels, metrics.heightPixels);
-
-        File file = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES);
-        file = new File(file, UUID.randomUUID().toString());
-        filePath = file.getPath();
-        mediaMuxer = new MediaMuxer(filePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
-        mediaMuxer.addTrack(mediaFormat);
-        mediaMuxer.start();
+        mediaFormat = buildMediaFormat(metrics.widthPixels, metrics.heightPixels);
 
         mediaCodec = MediaCodec.createEncoderByType(MIME_TYPE);
         setupMediaCodecCallback(
             mediaCodec,
-            new MediaCodecCallback(mediaCodec, mediaMuxer),
+            new MediaCodecCallback(mediaCodec, buffer),
             handler
         );
         mediaCodec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
@@ -105,42 +93,43 @@ public class ScreenRecorder {
         return mediaFormat;
     }
 
-    public String stopRecording() {
+    public void stopRecording() {
         if (projection != null) {
             projection.stop();
         }
         projection = null;
-        if (surface != null) {
-            surface.release();
-        }
-        surface = null;
-        if (virtualDisplay != null) {
-            virtualDisplay.release();
-        }
-        virtualDisplay = null;
         if (mediaCodec != null) {
             mediaCodec.stop();
             mediaCodec.release();
         }
         mediaCodec = null;
-        if (mediaMuxer != null) {
-            mediaMuxer.stop();
-            mediaMuxer.release();
+        if (virtualDisplay != null) {
+            virtualDisplay.release();
         }
-        mediaMuxer = null;
-        manager = null;
+        virtualDisplay = null;
+        if (surface != null) {
+            surface.release();
+        }
+        surface = null;
+    }
 
-        return filePath;
+    public void flashTo(String filePath) throws IOException {
+        MediaMuxer muxer = new MediaMuxer(filePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        muxer.addTrack(mediaFormat);
+        muxer.start();
+        buffer.writeTo(muxer, 0);
+        muxer.stop();
+        muxer.release();
     }
 
     private static class MediaCodecCallback extends MediaCodec.Callback {
 
         private final MediaCodec mediaCodec;
-        private final MediaMuxer mediaMuxer;
+        private final CyclicVideoBuffer buffer;
 
-        public MediaCodecCallback(MediaCodec mediaCodec, MediaMuxer mediaMuxer) {
+        public MediaCodecCallback(MediaCodec mediaCodec, CyclicVideoBuffer buffer) {
             this.mediaCodec = mediaCodec;
-            this.mediaMuxer = mediaMuxer;
+            this.buffer = buffer;
         }
 
         @Override
@@ -156,7 +145,7 @@ public class ScreenRecorder {
             encodedData.position(info.offset);
             encodedData.limit(info.offset + info.size);
 
-            mediaMuxer.writeSampleData(0, encodedData, info);
+            buffer.add(encodedData, info);
             mediaCodec.releaseOutputBuffer(index, false);
         }
 

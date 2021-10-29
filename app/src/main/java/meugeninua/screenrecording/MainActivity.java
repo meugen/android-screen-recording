@@ -2,11 +2,15 @@ package meugeninua.screenrecording;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.IBinder;
+import android.util.Log;
 import android.widget.EditText;
 
 import androidx.activity.result.ActivityResult;
@@ -14,7 +18,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import java.util.Map;
@@ -32,7 +35,19 @@ public class MainActivity extends AppCompatActivity {
             onGotRecordedPath(result.getPath());
         }
     };
+    private final ServiceConnection connection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            screenRecorderInterface = IScreenRecorderInterface.Stub.asInterface(service);
+        }
 
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            screenRecorderInterface = null;
+        }
+    };
+
+    private IScreenRecorderInterface screenRecorderInterface;
     private ActivityResultLauncher<Intent> activityResultLauncher;
     private ActivityResultLauncher<String[]> requestPermissionsLauncher;
     private ActivityMainBinding binding;
@@ -71,6 +86,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        startService(ScreenRecorderService.buildIntent(this));
+        bindService(
+            ScreenRecorderService.buildIntent(this),
+            connection,
+            0
+        );
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        unbindService(connection);
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         LocalBroadcastManager.getInstance(this).unregisterReceiver(resultReceiver);
@@ -98,12 +130,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void onContinueRecording(ActivityResult result) {
         if (result.getResultCode() != RESULT_OK) return;
-        ScreenRecorderService.Params params = new ScreenRecorderService.Params(
-            seconds, result
-        );
-        ContextCompat.startForegroundService(
-            this, params.buildIntent(this)
-        );
+        try {
+            screenRecorderInterface.start(
+                new ScreenRecorderParams(seconds, result)
+            );
+        } catch (Throwable e) {
+            Log.e(getClass().getSimpleName(), e.getMessage(), e);
+        }
     }
 
     private void onStartRecording() {
@@ -126,10 +159,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void onStopRecording() {
-        ScreenRecorderService.stopScreenRecording(this);
+        try {
+            screenRecorderInterface.stop();
+        } catch (Throwable e) {
+            Log.e(getClass().getSimpleName(), e.getMessage(), e);
+        }
     }
 
     private void onFlushRecordedVideo() {
-
+        try {
+            screenRecorderInterface.flush();
+        } catch (Throwable e) {
+            Log.e(getClass().getSimpleName(), e.getMessage(), e);
+        }
     }
 }
