@@ -117,7 +117,7 @@ public class ScreenRecorder {
         MediaMuxer muxer = new MediaMuxer(filePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
         muxer.addTrack(mediaFormat);
         muxer.start();
-        buffer.writeTo(muxer, 0);
+        buffer.cloneState().writeTo(muxer, 0);
         muxer.stop();
         muxer.release();
     }

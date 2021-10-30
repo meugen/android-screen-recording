@@ -5,6 +5,8 @@ import android.media.MediaMuxer;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.LinkedList;
 import java.util.concurrent.TimeUnit;
@@ -13,7 +15,7 @@ public class CyclicVideoBuffer {
 
     private final Deque<Data> deque = new LinkedList<>();
     private final long timeLimitMs;
-    private long prevTimeMs = -1L;
+    private long prevTimeMs;
     private long totalTimeMs = 0L;
     private Data firstItem = null;
 
@@ -46,14 +48,8 @@ public class CyclicVideoBuffer {
         }
     }
 
-    public void writeTo(MediaMuxer muxer, int trackIndex) {
-        Log.d("CyclicVideoBuffer", "deque.size() = " + deque.size());
-        if (firstItem != null) {
-            firstItem.writeTo(muxer, trackIndex);
-        }
-        for (Data data : deque) {
-            data.writeTo(muxer, trackIndex);
-        }
+    public State cloneState() {
+        return new State(firstItem, new ArrayList<>(deque));
     }
 
     private static class Data {
@@ -70,6 +66,27 @@ public class CyclicVideoBuffer {
 
         public void writeTo(MediaMuxer muxer, int trackIndex) {
             muxer.writeSampleData(trackIndex, ByteBuffer.wrap(buffer), info);
+        }
+    }
+
+    public static class State {
+
+        private final Data firstItem;
+        private final Collection<Data> items;
+
+        public State(Data firstItem, Collection<Data> items) {
+            this.firstItem = firstItem;
+            this.items = items;
+        }
+
+        public void writeTo(MediaMuxer muxer, int trackIndex) {
+            Log.d("CyclicVideoBuffer", "deque.size() = " + items.size());
+            if (firstItem != null) {
+                firstItem.writeTo(muxer, trackIndex);
+            }
+            for (Data data : items) {
+                data.writeTo(muxer, trackIndex);
+            }
         }
     }
 }

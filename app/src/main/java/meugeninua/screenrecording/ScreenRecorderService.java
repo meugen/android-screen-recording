@@ -117,7 +117,7 @@ public class ScreenRecorderService extends Service {
         handler.postDelayed(
             () -> startMediaProjection(params), 100L
         );
-        setupCurrentState(false, true, false);
+        setupCurrentState(false, true, true);
     }
 
     private void stopRecording() throws RemoteException {
@@ -126,7 +126,7 @@ public class ScreenRecorderService extends Service {
         }
         screenRecorder.stopRecording();
         stopForeground(true);
-        setupCurrentState(false, false, true);
+        setupCurrentState(true, false, true);
     }
 
     private void flushRecording() throws RemoteException {
@@ -143,7 +143,6 @@ public class ScreenRecorderService extends Service {
 
         try {
             screenRecorder.flashTo(filePath);
-            setupCurrentState(true, false, false);
             LocalBroadcastManager.getInstance(this)
                 .sendBroadcast(new Result(filePath).buildIntent());
             Log.d(ScreenRecorder.TAG, "Recorded to path: " + filePath);
