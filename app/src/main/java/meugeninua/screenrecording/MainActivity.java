@@ -126,6 +126,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void onGotRecordedPath(String path) {
         reloadState();
+        StoreToGalleryUtil.INSTANCE.storeToGallery(this, path);
         binding.videoView.setVideoPath(path);
         binding.videoView.start();
     }

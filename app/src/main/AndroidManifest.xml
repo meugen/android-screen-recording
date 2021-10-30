@@ -25,6 +25,17 @@
         <service
             android:name=".ScreenRecorderService"
             android:foregroundServiceType="mediaProjection"/>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="meugeninua.screenrecording.provider"
+            android:exported="false"
+            android:grantUriPermissions="true"
+            android:requestLegacyExternalStorage="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_path" />
+        </provider>
     </application>
 
 </manifest>
