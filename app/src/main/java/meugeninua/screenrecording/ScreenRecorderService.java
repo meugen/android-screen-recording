@@ -138,7 +138,10 @@ public class ScreenRecorderService extends Service {
 
     private void flushRecordingAsync() {
         File file = getExternalFilesDir(Environment.DIRECTORY_MOVIES);
-        file = new File(file, UUID.randomUUID().toString());
+        if (!file.exists() && !file.mkdirs()) {
+            throw new RuntimeException("Directory " + file.getPath() + " is not created");
+        }
+        file = new File(file, UUID.randomUUID().toString() + ".mp4");
         String filePath = file.getPath();
 
         try {
