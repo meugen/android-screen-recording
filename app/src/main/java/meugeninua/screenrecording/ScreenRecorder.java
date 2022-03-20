@@ -67,8 +67,9 @@ public class ScreenRecorder {
         );
         DisplayMetrics metrics = new DisplayMetrics();
         display.getMetrics(metrics);
-        Log.d(TAG, "size = " + metrics.widthPixels + "x" + metrics.heightPixels);
-        mediaFormat = buildMediaFormat(metrics.widthPixels, metrics.heightPixels);
+        int width = metrics.widthPixels;
+        int height = metrics.heightPixels;
+        mediaFormat = buildMediaFormat(width, height);
 
         MediaCodecList codecList = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
         for (MediaCodecInfo info : codecList.getCodecInfos()) {
@@ -80,7 +81,9 @@ public class ScreenRecorder {
         }
         String codecName = codecList.findEncoderForFormat(mediaFormat);
         if (codecName == null) {
-            mediaFormat = buildMediaFormat(metrics.widthPixels / 2, metrics.heightPixels / 2);
+            width /= 2;
+            height /= 2;
+            mediaFormat = buildMediaFormat(width, height);
             codecName = codecList.findEncoderForFormat(mediaFormat);
         }
         Log.d(TAG, "[RESULT] codec name = " + codecName);
@@ -95,7 +98,7 @@ public class ScreenRecorder {
         mediaCodec.start();
 
         virtualDisplay = projection.createVirtualDisplay(
-            "Record", metrics.widthPixels, metrics.heightPixels,
+            "Record", width, height,
             metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler
         );
