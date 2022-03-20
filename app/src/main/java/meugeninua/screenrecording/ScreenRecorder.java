@@ -2,11 +2,16 @@ package meugeninua.screenrecording;
 
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
+import android.media.AudioFormat;
+import android.media.AudioPlaybackCaptureConfiguration;
+import android.media.AudioRecord;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
+import android.media.MediaRecorder;
+import android.media.MediaSyncEvent;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
@@ -19,11 +24,33 @@ import android.view.Surface;
 import androidx.activity.result.ActivityResult;
 import androidx.annotation.NonNull;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 public class ScreenRecorder {
+
+    private static final int SAMPLING_RATE_IN_HZ = 44100;
+
+    private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
+
+    private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_FLOAT;
+
+    /**
+     * Factor by that the minimum buffer size is multiplied. The bigger the factor is the less
+     * likely it is that samples will be dropped, but more memory will be used. The minimum buffer
+     * size is determined by {@link AudioRecord#getMinBufferSize(int, int, int)} and depends on the
+     * recording settings.
+     */
+    private static final int BUFFER_SIZE_FACTOR = 2;
+
+    /**
+     * Size of the buffer where the audio data is stored by Android
+     */
+    private static final int BUFFER_SIZE = AudioRecord.getMinBufferSize(SAMPLING_RATE_IN_HZ,
+        CHANNEL_CONFIG, AUDIO_FORMAT) * BUFFER_SIZE_FACTOR;
 
     public static final ScreenRecorder INSTANCE = new ScreenRecorder();
     public static final String TAG = ScreenRecorder.class.getSimpleName();
@@ -37,6 +64,9 @@ public class ScreenRecorder {
     private VirtualDisplay virtualDisplay;
     private Surface surface;
     private MediaCodec mediaCodec;
+
+    private Thread audioThread;
+    private ByteArrayOutputStream audioStream;
 
     public void setSeconds(int seconds) {
         this.buffer = new CyclicVideoBuffer(seconds);
@@ -72,20 +102,18 @@ public class ScreenRecorder {
         mediaFormat = buildMediaFormat(width, height);
 
         MediaCodecList codecList = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
-        for (MediaCodecInfo info : codecList.getCodecInfos()) {
+        /*for (MediaCodecInfo info : codecList.getCodecInfos()) {
             Log.d(TAG, "[LIST] codec name = " + info.getName());
             Log.d(TAG, "supported types = " + Arrays.toString(info.getSupportedTypes()));
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                Log.d(TAG, "codec canonical name = " + info.getCanonicalName());
-            }
-        }
+            Log.d(TAG, "codec canonical name = " + info.getCanonicalName());
+        }*/
         String codecName = codecList.findEncoderForFormat(mediaFormat);
-        if (codecName == null) {
+        /*if (codecName == null) {
             width /= 2;
             height /= 2;
             mediaFormat = buildMediaFormat(width, height);
             codecName = codecList.findEncoderForFormat(mediaFormat);
-        }
+        }*/
         Log.d(TAG, "[RESULT] codec name = " + codecName);
         mediaCodec = MediaCodec.createByCodecName(codecName);
         setupMediaCodecCallback(
@@ -102,16 +130,28 @@ public class ScreenRecorder {
             metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler
         );
+
+        AudioPlaybackCaptureConfiguration configuration = new AudioPlaybackCaptureConfiguration.Builder(projection)
+            .build();
+        AudioFormat audioFormat = new AudioFormat.Builder()
+            .setEncoding(AUDIO_FORMAT)
+            .setSampleRate(SAMPLING_RATE_IN_HZ)
+            .setChannelMask(CHANNEL_CONFIG)
+            .build();
+        AudioRecord audioRecord = new AudioRecord.Builder()
+            .setAudioPlaybackCaptureConfig(configuration)
+            .setAudioFormat(audioFormat)
+            .setBufferSizeInBytes(BUFFER_SIZE)
+            .build();
+        audioStream = new ByteArrayOutputStream();
+        audioThread = new Thread(new AudioRunnable(audioRecord, audioStream));
+        audioThread.start();
     }
 
     private void setupMediaCodecCallback(
         MediaCodec codec, MediaCodec.Callback callback, Handler handler
     ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            codec.setCallback(callback, handler);
-        } else {
-            codec.setCallback(callback);
-        }
+        codec.setCallback(callback, handler);
     }
 
     private MediaFormat buildMediaFormat(int width, int height) {
@@ -127,6 +167,10 @@ public class ScreenRecorder {
     }
 
     public void stopRecording() {
+        if (audioThread != null) {
+            audioThread.interrupt();
+        }
+        audioThread = null;
         if (projection != null) {
             projection.stop();
         }
@@ -147,6 +191,8 @@ public class ScreenRecorder {
     }
 
     public void flashTo(String filePath) throws IOException {
+        Log.d(TAG, "audio stream length = " + audioStream.size());
+
         MediaMuxer muxer = new MediaMuxer(filePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
         muxer.addTrack(mediaFormat);
         muxer.start();
@@ -190,6 +236,38 @@ public class ScreenRecorder {
         @Override
         public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
             Log.d(TAG, "Output format changed to " + format);
+        }
+    }
+
+    private static class AudioRunnable implements Runnable {
+
+        private final AudioRecord audioRecord;
+        private final OutputStream outputStream;
+
+        public AudioRunnable(AudioRecord audioRecord, OutputStream outputStream) {
+            this.audioRecord = audioRecord;
+            this.outputStream = outputStream;
+        }
+
+        @Override
+        public void run() {
+            audioRecord.startRecording();
+
+            try {
+                ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
+                while (!Thread.interrupted()) {
+                    int count = audioRecord.read(buffer, BUFFER_SIZE);
+                    if (count < 0) {
+                        break;
+                    }
+                    outputStream.write(buffer.array(), 0, count);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, e.getMessage(), e);
+            } finally {
+                audioRecord.stop();
+                audioRecord.release();
+            }
         }
     }
 }

@@ -168,12 +168,11 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        String[] permissions;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            permissions = new String[] {Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.WRITE_EXTERNAL_STORAGE};
-        } else {
-            permissions = new String[] {Manifest.permission.WRITE_EXTERNAL_STORAGE};
-        }
+        String[] permissions = new String[] {
+            Manifest.permission.FOREGROUND_SERVICE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.RECORD_AUDIO
+        };
         requestPermissionsLauncher.launch(permissions);
     }
 

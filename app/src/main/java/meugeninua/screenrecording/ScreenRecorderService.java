@@ -101,11 +101,7 @@ public class ScreenRecorderService extends Service {
             .setContentIntent(pendingIntent)
             .setTicker("The ticker")
             .build();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(SERVICE_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
-        } else {
-            startForeground(SERVICE_ID, notification);
-        }
+        startForeground(SERVICE_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
     }
 
     private void startRecording(ScreenRecorderParams params) throws RemoteException {
