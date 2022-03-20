@@ -4,6 +4,7 @@ import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import android.media.projection.MediaProjection;
@@ -20,6 +21,7 @@ import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 public class ScreenRecorder {
 
@@ -44,6 +46,19 @@ public class ScreenRecorder {
         this.manager = manager;
     }
 
+//    private String findEncoderForFormat(MediaCodecList codecList) {
+//        for (MediaCodecInfo codecInfo : codecList.getCodecInfos()) {
+//            try {
+//                MediaCodecInfo.CodecCapabilities capabilities =
+//                    codecInfo.getCapabilitiesForType(MIME_TYPE);
+//                if (capabilities != null) {
+//                    return codecInfo.getName();
+//                }
+//            } catch (Exception e) {}
+//        }
+//        return null;
+//    }
+
     public void continueRecording(
         ActivityResult result, Display display, Handler handler
     ) throws IOException {
@@ -52,9 +67,24 @@ public class ScreenRecorder {
         );
         DisplayMetrics metrics = new DisplayMetrics();
         display.getMetrics(metrics);
+        Log.d(TAG, "size = " + metrics.widthPixels + "x" + metrics.heightPixels);
         mediaFormat = buildMediaFormat(metrics.widthPixels, metrics.heightPixels);
 
-        mediaCodec = MediaCodec.createEncoderByType(MIME_TYPE);
+        MediaCodecList codecList = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
+        for (MediaCodecInfo info : codecList.getCodecInfos()) {
+            Log.d(TAG, "[LIST] codec name = " + info.getName());
+            Log.d(TAG, "supported types = " + Arrays.toString(info.getSupportedTypes()));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                Log.d(TAG, "codec canonical name = " + info.getCanonicalName());
+            }
+        }
+        String codecName = codecList.findEncoderForFormat(mediaFormat);
+        if (codecName == null) {
+            mediaFormat = buildMediaFormat(metrics.widthPixels / 2, metrics.heightPixels / 2);
+            codecName = codecList.findEncoderForFormat(mediaFormat);
+        }
+        Log.d(TAG, "[RESULT] codec name = " + codecName);
+        mediaCodec = MediaCodec.createByCodecName(codecName);
         setupMediaCodecCallback(
             mediaCodec,
             new MediaCodecCallback(mediaCodec, buffer),
