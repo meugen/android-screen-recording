@@ -52,7 +52,9 @@ public class ScreenRecorder {
         );
         DisplayMetrics metrics = new DisplayMetrics();
         display.getMetrics(metrics);
-        mediaFormat = buildMediaFormat(metrics.widthPixels, metrics.heightPixels);
+        int width = makeEvenValue(metrics.widthPixels);
+        int height = makeEvenValue(metrics.heightPixels);
+        mediaFormat = buildMediaFormat(width, height);
 
         mediaCodec = MediaCodec.createEncoderByType(MIME_TYPE);
         setupMediaCodecCallback(
@@ -65,7 +67,7 @@ public class ScreenRecorder {
         mediaCodec.start();
 
         virtualDisplay = projection.createVirtualDisplay(
-            "Record", metrics.widthPixels, metrics.heightPixels,
+            "Record", width, height,
             metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler
         );
@@ -81,7 +83,15 @@ public class ScreenRecorder {
         }
     }
 
+    private int makeEvenValue(int value) {
+        return value % 2 == 0 ? value : value - 1;
+    }
+
     private MediaFormat buildMediaFormat(int width, int height) {
+        Log.d(TAG, String.format("Size = %dx%d", width, height));
+        // 1768x2082
+        // 840x2081
+
         MediaFormat mediaFormat = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
         mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 6000000);
         mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
