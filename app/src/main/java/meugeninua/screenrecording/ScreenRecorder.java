@@ -21,12 +21,15 @@ import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ScreenRecorder {
 
     public static final ScreenRecorder INSTANCE = new ScreenRecorder();
     public static final String TAG = ScreenRecorder.class.getSimpleName();
     private static final String MIME_TYPE = "video/avc";
+    private static final Object SYNC = new Object();
 
     private CyclicVideoBuffer buffer;
     private MediaFormat mediaFormat;
@@ -53,11 +56,16 @@ public class ScreenRecorder {
         );
         DisplayMetrics metrics = new DisplayMetrics();
         display.getMetrics(metrics);
-        CodecInfo codecInfo = findCodecInfo(metrics);
-        Log.d(TAG, "Found codec info: " + codecInfo);
-        mediaFormat = buildMediaFormat(codecInfo.width, codecInfo.height, codecInfo.sliceHeight);
+        List<CodecInfo> codecInfos = findCodecInfo(metrics);
+        Log.d(TAG, "Found codec infos: " + codecInfos);
+        CodecInfo selectedCodecInfo = codecInfos.get(0);
+        Log.d(TAG, "Selected codec info: " + selectedCodecInfo);
+        mediaFormat = buildMediaFormat(
+            selectedCodecInfo.width,
+            selectedCodecInfo.height
+        );
 
-        mediaCodec = MediaCodec.createByCodecName(codecInfo.name);
+        mediaCodec = MediaCodec.createByCodecName(selectedCodecInfo.name);
         setupMediaCodecCallback(
             mediaCodec,
             new MediaCodecCallback(mediaCodec, buffer),
@@ -68,7 +76,7 @@ public class ScreenRecorder {
         mediaCodec.start();
 
         virtualDisplay = projection.createVirtualDisplay(
-            "Record", codecInfo.width, codecInfo.height,
+            "Record", selectedCodecInfo.width, selectedCodecInfo.height,
             metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler
         );
@@ -84,11 +92,12 @@ public class ScreenRecorder {
         }
     }
 
-    private CodecInfo findCodecInfo(DisplayMetrics metrics) {
+    private List<CodecInfo> findCodecInfo(DisplayMetrics metrics) {
         Log.d(TAG, String.format("Original size = %dx%d", metrics.widthPixels, metrics.heightPixels));
 
         MediaCodecList codecList = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
 //        String defName = codecList.findEncoderForFormat(buildMediaFormat(width, height));
+        List<CodecInfo> result = new ArrayList<>();
         for (MediaCodecInfo codecInfo : codecList.getCodecInfos()) {
             if (!codecInfo.isEncoder()) continue;
             MediaCodecInfo.CodecCapabilities capabilities;
@@ -105,21 +114,26 @@ public class ScreenRecorder {
                     newWidth /= 2;
                     newHeight /= 2;
                 }
-                return new CodecInfo(codecInfo.getName(), "",
-                    makeEvenValue(newWidth),
-                    makeEvenValue(newHeight),
-                    sliceHeight
+                newWidth = makeEvenValue(newWidth);
+                newHeight = makeEvenValue(newHeight);
+                CodecInfo info = new CodecInfo(codecInfo.getName(),
+                    capabilities.isFormatSupported(buildMediaFormat(newWidth, newHeight)),
+                    newWidth, newHeight, sliceHeight
                 );
+                if (info.formatSupported) {
+                    result.add(info);
+                }
+                result.add(info);
             } catch (Exception e) { }
         }
-        return null;
+        return result;
     }
 
     private int makeEvenValue(int value) {
         return value % 2 == 0 ? value : value - 1;
     }
 
-    private MediaFormat buildMediaFormat(int width, int height, int sliceHeight) {
+    private MediaFormat buildMediaFormat(int width, int height) {
         Log.d(TAG, String.format("Size = %dx%d", width, height));
         // 1768x2082
         // 840x2081
@@ -132,35 +146,37 @@ public class ScreenRecorder {
         mediaFormat.setInteger(MediaFormat.KEY_CHANNEL_COUNT, 1);
         mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
         mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        mediaFormat.setInteger(MediaFormat.KEY_SLICE_HEIGHT, sliceHeight);
+//        mediaFormat.setInteger(MediaFormat.KEY_SLICE_HEIGHT, sliceHeight);
         return mediaFormat;
     }
 
     public void stopRecording() {
-        if (projection != null) {
-            projection.stop();
+        synchronized (SYNC) {
+            if (projection != null) {
+                projection.stop();
+            }
+            projection = null;
+            if (mediaCodec != null) {
+                mediaCodec.stop();
+                mediaCodec.release();
+            }
+            mediaCodec = null;
+            if (virtualDisplay != null) {
+                virtualDisplay.release();
+            }
+            virtualDisplay = null;
+            if (surface != null) {
+                surface.release();
+            }
+            surface = null;
         }
-        projection = null;
-        if (mediaCodec != null) {
-            mediaCodec.stop();
-            mediaCodec.release();
-        }
-        mediaCodec = null;
-        if (virtualDisplay != null) {
-            virtualDisplay.release();
-        }
-        virtualDisplay = null;
-        if (surface != null) {
-            surface.release();
-        }
-        surface = null;
     }
 
     public void flashTo(String filePath) throws IOException {
         MediaMuxer muxer = new MediaMuxer(filePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
-        muxer.addTrack(mediaFormat);
+        int index = muxer.addTrack(mediaFormat);
         muxer.start();
-        buffer.cloneState().writeTo(muxer, 0);
+        buffer.cloneState().writeTo(muxer, index);
         muxer.stop();
         muxer.release();
     }
@@ -182,14 +198,20 @@ public class ScreenRecorder {
 
         @Override
         public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
-            Log.d(TAG, "Output buffer available, index = " + index + ", info = " + info);
+            synchronized (SYNC) {
+                Log.d(TAG, "Output buffer available, index = " + index + ", info = " + info);
 
-            ByteBuffer encodedData = mediaCodec.getOutputBuffer(index);
-            encodedData.position(info.offset);
-            encodedData.limit(info.offset + info.size);
+                try {
+                    ByteBuffer encodedData = mediaCodec.getOutputBuffer(index);
+                    encodedData.position(info.offset);
+                    encodedData.limit(info.offset + info.size);
 
-            buffer.add(encodedData, info);
-            mediaCodec.releaseOutputBuffer(index, false);
+                    buffer.add(encodedData, info);
+                    mediaCodec.releaseOutputBuffer(index, false);
+                } catch (Exception e) {
+                    Log.e(TAG, e.getMessage(), e);
+                }
+            }
         }
 
         @Override
@@ -205,14 +227,14 @@ public class ScreenRecorder {
 
     private static class CodecInfo {
         final String name;
-        final String defName;
+        final boolean formatSupported;
         final int width;
         final int height;
         final int sliceHeight;
 
-        public CodecInfo(String name, String defName, int width, int height, int sliceHeight) {
+        public CodecInfo(String name, boolean formatSupported, int width, int height, int sliceHeight) {
             this.name = name;
-            this.defName = defName;
+            this.formatSupported = formatSupported;
             this.width = width;
             this.height = height;
             this.sliceHeight = sliceHeight;
@@ -222,7 +244,7 @@ public class ScreenRecorder {
         public String toString() {
             return "CodecInfo{" +
                 "name='" + name + '\'' +
-                ", defName='" + defName + '\'' +
+                ", formatSupported=" + formatSupported +
                 ", width=" + width +
                 ", height=" + height +
                 ", sliceHeight=" + sliceHeight +
