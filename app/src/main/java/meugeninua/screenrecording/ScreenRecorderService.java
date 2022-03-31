@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
+import android.content.res.Configuration;
 import android.hardware.display.DisplayManager;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
@@ -91,7 +92,7 @@ public class ScreenRecorderService extends Service {
 
     private void startForeground() {
         Intent activityIntent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, activityIntent, 0);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, activityIntent, PendingIntent.FLAG_IMMUTABLE);
 
         createChannelIfNeeded();
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -158,18 +159,14 @@ public class ScreenRecorderService extends Service {
         screenRecorder.setSeconds(params.getSeconds());
         screenRecorder.setManager((MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE));
         try {
+            Configuration configuration = getResources().getConfiguration();
             screenRecorder.continueRecording(
-                params.getActivityResult(), getDefaultDisplay(), handler
+                params.getActivityResult(), params.getRect(), configuration, handler
             );
         } catch (IOException e) {
             Log.e(ScreenRecorder.TAG, e.getMessage(), e);
             stopSelf();
         }
-    }
-
-    private Display getDefaultDisplay() {
-        DisplayManager displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
-        return displayManager.getDisplay(Display.DEFAULT_DISPLAY);
     }
 
     @Nullable

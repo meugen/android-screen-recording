@@ -6,6 +6,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.graphics.Rect;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -19,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+import androidx.window.layout.WindowMetricsCalculator;
 
 import java.util.Map;
 
@@ -149,8 +151,10 @@ public class MainActivity extends AppCompatActivity {
     private void onContinueRecording(ActivityResult result) {
         if (result.getResultCode() != RESULT_OK) return;
         try {
+            WindowMetricsCalculator calculator = WindowMetricsCalculator.getOrCreate();
+            Rect rect = calculator.computeMaximumWindowMetrics(this).getBounds();
             ScreenRecorderState state = screenRecorderInterface.start(
-                new ScreenRecorderParams(seconds, result)
+                new ScreenRecorderParams(seconds, result, rect)
             );
             setupButtonEnabled(state);
         } catch (Throwable e) {

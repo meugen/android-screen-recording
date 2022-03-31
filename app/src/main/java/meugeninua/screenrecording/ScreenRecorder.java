@@ -1,5 +1,7 @@
 package meugeninua.screenrecording;
 
+import android.content.res.Configuration;
+import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.MediaCodec;
@@ -49,14 +51,12 @@ public class ScreenRecorder {
     }
 
     public void continueRecording(
-        ActivityResult result, Display display, Handler handler
+        ActivityResult result, Rect rect, Configuration configuration, Handler handler
     ) throws IOException {
         this.projection = manager.getMediaProjection(
             result.getResultCode(), result.getData()
         );
-        DisplayMetrics metrics = new DisplayMetrics();
-        display.getMetrics(metrics);
-        List<CodecInfo> codecInfos = findCodecInfo(metrics);
+        List<CodecInfo> codecInfos = findCodecInfo(rect);
         Log.d(TAG, "Found codec infos: " + codecInfos);
         CodecInfo selectedCodecInfo = codecInfos.get(0);
         Log.d(TAG, "Selected codec info: " + selectedCodecInfo);
@@ -77,7 +77,7 @@ public class ScreenRecorder {
 
         virtualDisplay = projection.createVirtualDisplay(
             "Record", selectedCodecInfo.width, selectedCodecInfo.height,
-            metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            configuration.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler
         );
     }
@@ -92,8 +92,8 @@ public class ScreenRecorder {
         }
     }
 
-    private List<CodecInfo> findCodecInfo(DisplayMetrics metrics) {
-        Log.d(TAG, String.format("Original size = %dx%d", metrics.widthPixels, metrics.heightPixels));
+    private List<CodecInfo> findCodecInfo(Rect rect) {
+        Log.d(TAG, String.format("Original size = %dx%d", rect.width(), rect.height()));
 
         MediaCodecList codecList = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
 //        String defName = codecList.findEncoderForFormat(buildMediaFormat(width, height));
@@ -106,8 +106,8 @@ public class ScreenRecorder {
                 MediaCodecInfo.VideoCapabilities videoCapabilities = capabilities
                     .getVideoCapabilities();
                 if (videoCapabilities == null) continue;
-                int newWidth = metrics.widthPixels;
-                int newHeight = metrics.heightPixels;
+                int newWidth = rect.width();
+                int newHeight = rect.height();
                 int sliceHeight = 1;
                 while (!videoCapabilities.getSupportedHeights().contains(newHeight) || !videoCapabilities.getSupportedWidths().contains(newWidth)) {
                     sliceHeight *= 2;
