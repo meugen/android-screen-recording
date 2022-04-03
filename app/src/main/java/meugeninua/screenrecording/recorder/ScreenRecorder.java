@@ -5,8 +5,6 @@ import android.hardware.display.VirtualDisplay;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioPlaybackCaptureConfiguration;
-import android.media.AudioRecord;
-import android.media.AudioTimestamp;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -21,11 +19,15 @@ import android.view.Display;
 import android.view.Surface;
 
 import androidx.activity.result.ActivityResult;
+import androidx.annotation.NonNull;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.concurrent.TimeUnit;
 
+import meugeninua.screenrecording.app.ContextSingleton;
+import meugeninua.screenrecording.recorder.audio.AudioRecordConfig;
+import meugeninua.screenrecording.recorder.audio.Source;
 import meugeninua.screenrecording.utils.CyclicVideoBuffer;
 
 public class ScreenRecorder {
@@ -34,6 +36,8 @@ public class ScreenRecorder {
     public static final String TAG = ScreenRecorder.class.getSimpleName();
     private static final String MIME_TYPE = "video/avc";
     private static final int SAMPLING_RATE_IN_HZ = 44100;
+
+    private static final Object SYNC = new Object();
 
     private CyclicVideoBuffer videoBuffer;
     private MediaFormat videoFormat;
@@ -44,7 +48,6 @@ public class ScreenRecorder {
     private Surface surface;
     private MediaCodec mediaCodec;
 
-    private Thread outputThread;
     private Thread audioThread;
 
     public void setSeconds(int seconds) {
@@ -71,6 +74,7 @@ public class ScreenRecorder {
         String codecName = codecList.findEncoderForFormat(videoFormat);
         Log.d(TAG, "[RESULT] codec name = " + codecName);
         mediaCodec = MediaCodec.createByCodecName(codecName);
+        mediaCodec.setCallback(new MediaCodecCallback(mediaCodec, videoBuffer), handler);
         mediaCodec.configure(videoFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
         surface = mediaCodec.createInputSurface();
         mediaCodec.start();
@@ -84,27 +88,21 @@ public class ScreenRecorder {
         AudioPlaybackCaptureConfiguration configuration = new AudioPlaybackCaptureConfiguration.Builder(projection)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
             .build();
-        AudioFormat audioFormat = new AudioFormat.Builder()
-            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
-            .setSampleRate(SAMPLING_RATE_IN_HZ)
-            .build();
-        AudioRecord audioRecord = new AudioRecord.Builder()
-            .setAudioPlaybackCaptureConfig(configuration)
-            .setAudioFormat(audioFormat)
-            .build();
+        AudioRecordConfig audioRecordConfig = new AudioRecordConfig(
+            AudioFormat.CHANNEL_IN_MONO,
+            SAMPLING_RATE_IN_HZ,
+            AudioFormat.ENCODING_PCM_16BIT
+        );
 
-        this.outputThread = new Thread(new OutputRunnable(mediaCodec, videoBuffer));
-        this.outputThread.start();
-        this.audioThread = new Thread(new AudioRunnable(audioRecord, mediaCodec));
+        this.audioThread = new Thread(new AudioRunnable(audioRecordConfig, configuration));
         this.audioThread.start();
     }
 
     private MediaFormat buildMediaFormat(int width, int height) {
         MediaFormat mediaFormat = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
-        mediaFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_FLOAT);
-        mediaFormat.setInteger(MediaFormat.KEY_CHANNEL_MASK, AudioFormat.CHANNEL_IN_STEREO);
-        mediaFormat.setInteger(MediaFormat.KEY_SAMPLE_RATE, SAMPLING_RATE_IN_HZ);
+//        mediaFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_FLOAT);
+//        mediaFormat.setInteger(MediaFormat.KEY_CHANNEL_MASK, AudioFormat.CHANNEL_IN_STEREO);
+//        mediaFormat.setInteger(MediaFormat.KEY_SAMPLE_RATE, SAMPLING_RATE_IN_HZ);
         mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 6000000);
         mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
         mediaFormat.setInteger(MediaFormat.KEY_CAPTURE_RATE, 30);
@@ -116,31 +114,29 @@ public class ScreenRecorder {
     }
 
     public void stopRecording() {
-        if (projection != null) {
-            projection.stop();
+        synchronized (SYNC) {
+            if (projection != null) {
+                projection.stop();
+            }
+            projection = null;
+            if (audioThread != null) {
+                audioThread.interrupt();
+            }
+            audioThread = null;
+            if (virtualDisplay != null) {
+                virtualDisplay.release();
+            }
+            virtualDisplay = null;
+            if (mediaCodec != null) {
+                mediaCodec.stop();
+                mediaCodec.release();
+            }
+            mediaCodec = null;
+            if (surface != null) {
+                surface.release();
+            }
+            surface = null;
         }
-        projection = null;
-        if (audioThread != null) {
-            audioThread.interrupt();
-        }
-        audioThread = null;
-        if (outputThread != null) {
-            outputThread.interrupt();
-        }
-        outputThread = null;
-        if (virtualDisplay != null) {
-            virtualDisplay.release();
-        }
-        virtualDisplay = null;
-        if (mediaCodec != null) {
-            mediaCodec.stop();
-            mediaCodec.release();
-        }
-        mediaCodec = null;
-        if (surface != null) {
-            surface.release();
-        }
-        surface = null;
     }
 
     public void flashTo(String filePath) throws IOException {
@@ -154,73 +150,86 @@ public class ScreenRecorder {
         muxer.release();
     }
 
-    private static class OutputRunnable implements Runnable {
+    private static class MediaCodecCallback extends MediaCodec.Callback {
 
         private final MediaCodec mediaCodec;
         private final CyclicVideoBuffer buffer;
 
-        public OutputRunnable(MediaCodec mediaCodec, CyclicVideoBuffer buffer) {
+        public MediaCodecCallback(MediaCodec mediaCodec, CyclicVideoBuffer buffer) {
             this.mediaCodec = mediaCodec;
             this.buffer = buffer;
         }
 
         @Override
-        public void run() {
-            try {
-                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-                while (!Thread.interrupted()) {
-                    int index = mediaCodec.dequeueOutputBuffer(info, 1_000);
-                    if (index >= 0) {
-                        ByteBuffer encodedData = mediaCodec.getOutputBuffer(index);
-                        encodedData.position(info.offset);
-                        encodedData.limit(info.offset + info.size);
+        public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
+            Log.d(TAG, "Input buffer available, index = " + index);
+        }
 
-                        buffer.add(encodedData, info);
-                        mediaCodec.releaseOutputBuffer(index, false);
-                    }
+        @Override
+        public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
+            synchronized (SYNC) {
+                Log.d(TAG, "Output buffer available, index = " + index + ", info = " + info);
+
+                try {
+                    ByteBuffer encodedData = mediaCodec.getOutputBuffer(index);
+                    encodedData.position(info.offset);
+                    encodedData.limit(info.offset + info.size);
+
+                    buffer.add(encodedData, info);
+                    mediaCodec.releaseOutputBuffer(index, false);
+                } catch (Exception e) {
+                    Log.e(TAG, e.getMessage(), e);
                 }
-            } catch (Exception e) {
-                Log.e(TAG, e.getMessage(), e);
             }
+        }
+
+        @Override
+        public void onError(@NonNull MediaCodec codec, @NonNull MediaCodec.CodecException e) {
+            Log.e(TAG, e.getMessage(), e);
+        }
+
+        @Override
+        public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
+            Log.d(TAG, "Output format changed to " + format);
         }
     }
 
     private static class AudioRunnable implements Runnable {
 
-        private final AudioRecord audioRecord;
-        private final MediaCodec mediaCodec;
+        private final AudioRecordConfig audioRecordConfig;
+        private final AudioPlaybackCaptureConfiguration configuration;
 
-        public AudioRunnable(AudioRecord audioRecord, MediaCodec mediaCodec) {
-            this.audioRecord = audioRecord;
-            this.mediaCodec = mediaCodec;
+        public AudioRunnable(
+            AudioRecordConfig audioRecordConfig,
+            AudioPlaybackCaptureConfiguration configuration
+        ) {
+            this.audioRecordConfig = audioRecordConfig;
+            this.configuration = configuration;
         }
 
         @Override
         public void run() {
-            audioRecord.startRecording();
+            Source source = new Source(audioRecordConfig, configuration);
+            source.audioRecord().startRecording();
 
-            try {
-                AudioTimestamp audioTimestamp = new AudioTimestamp();
+            String fileName = ContextSingleton.getOutputFileName("Media", ".pcm");
+            try(FileOutputStream stream = new FileOutputStream(fileName)) {
+                byte[] bytes = new byte[source.bufferSizeInBytes()];
                 while (!Thread.interrupted()) {
-                    int index = mediaCodec.dequeueInputBuffer(1_000);
-                    if (index >= 0) {
-                        ByteBuffer buffer = mediaCodec.getInputBuffer(index);
-                        Log.d("AudioRunnable", "buffer.capacity() = " + buffer.capacity());
-                        int count = audioRecord.read(buffer, buffer.capacity());
-                        if (count < 0) {
-                            break;
-                        }
-                        audioRecord.getTimestamp(audioTimestamp, AudioTimestamp.TIMEBASE_MONOTONIC);
-                        long newTimeUs = TimeUnit.NANOSECONDS.toMicros(audioTimestamp.nanoTime);
-                        mediaCodec.queueInputBuffer(index, 0, count, newTimeUs, MediaCodec.BUFFER_FLAG_KEY_FRAME);
+                    int count = source.audioRecord().read(bytes, 0, source.bufferSizeInBytes());
+                    Log.d(TAG, String.format("Read %d bytes", count));
+                    if (count < 0) {
+                        break;
                     }
+                    stream.write(bytes, 0, count);
                 }
             } catch (Exception e) {
                 Log.e(TAG, e.getMessage(), e);
             } finally {
-                audioRecord.stop();
-                audioRecord.release();
+                source.audioRecord().stop();
+                source.audioRecord().release();
             }
+            Log.d(TAG, "Wav file wrote to " + fileName);
         }
     }
 }
