@@ -1,8 +1,8 @@
 // IScreenRecorderInterface.aidl
-package meugeninua.screenrecording;
+package meugeninua.screenrecording.recorder;
 
-import meugeninua.screenrecording.ScreenRecorderParams;
-import meugeninua.screenrecording.ScreenRecorderState;
+import meugeninua.screenrecording.recorder.ScreenRecorderParams;
+import meugeninua.screenrecording.recorder.ScreenRecorderState;
 
 interface IScreenRecorderInterface {
 

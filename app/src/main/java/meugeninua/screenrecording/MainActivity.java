@@ -22,6 +22,7 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import java.util.Map;
 
 import meugeninua.screenrecording.databinding.ActivityMainBinding;
+import meugeninua.screenrecording.recorder.IScreenRecorderInterface;
 import meugeninua.screenrecording.recorder.ScreenRecorderParams;
 import meugeninua.screenrecording.recorder.ScreenRecorderService;
 import meugeninua.screenrecording.recorder.ScreenRecorderState;
