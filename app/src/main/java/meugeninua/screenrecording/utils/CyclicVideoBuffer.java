@@ -1,4 +1,4 @@
-package meugeninua.screenrecording;
+package meugeninua.screenrecording.utils;
 
 import android.media.MediaCodec;
 import android.media.MediaMuxer;

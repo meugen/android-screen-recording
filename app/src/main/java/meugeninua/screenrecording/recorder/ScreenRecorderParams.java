@@ -1,4 +1,4 @@
-package meugeninua.screenrecording;
+package meugeninua.screenrecording.recorder;
 
 import android.os.Parcel;
 import android.os.Parcelable;

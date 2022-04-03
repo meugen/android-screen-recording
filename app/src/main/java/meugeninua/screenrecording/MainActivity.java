@@ -7,7 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.media.projection.MediaProjectionManager;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
@@ -23,6 +22,10 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import java.util.Map;
 
 import meugeninua.screenrecording.databinding.ActivityMainBinding;
+import meugeninua.screenrecording.recorder.ScreenRecorderParams;
+import meugeninua.screenrecording.recorder.ScreenRecorderService;
+import meugeninua.screenrecording.recorder.ScreenRecorderState;
+import meugeninua.screenrecording.utils.StoreToGalleryUtil;
 
 public class MainActivity extends AppCompatActivity {
 

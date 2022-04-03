@@ -24,7 +24,7 @@
         </activity>
 
         <service
-            android:name=".ScreenRecorderService"
+            android:name=".recorder.ScreenRecorderService"
             android:foregroundServiceType="mediaProjection"/>
 
         <provider

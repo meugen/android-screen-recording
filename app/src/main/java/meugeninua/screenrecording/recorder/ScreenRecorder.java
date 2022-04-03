@@ -1,4 +1,4 @@
-package meugeninua.screenrecording;
+package meugeninua.screenrecording.recorder;
 
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
@@ -19,14 +19,14 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
 import android.view.Surface;
-import android.view.WindowManager;
 
 import androidx.activity.result.ActivityResult;
-import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
+
+import meugeninua.screenrecording.utils.CyclicVideoBuffer;
 
 public class ScreenRecorder {
 

@@ -1,4 +1,4 @@
-package meugeninua.screenrecording;
+package meugeninua.screenrecording.recorder;
 
 import android.app.Notification;
 import android.app.PendingIntent;
@@ -9,7 +9,6 @@ import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.hardware.display.DisplayManager;
 import android.media.projection.MediaProjectionManager;
-import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -17,7 +16,6 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.Display;
-import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationChannelCompat;
@@ -29,6 +27,9 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import java.io.File;
 import java.io.IOException;
 import java.util.UUID;
+
+import meugeninua.screenrecording.MainActivity;
+import meugeninua.screenrecording.R;
 
 public class ScreenRecorderService extends Service {
 
