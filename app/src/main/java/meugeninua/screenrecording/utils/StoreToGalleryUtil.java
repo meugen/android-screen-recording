@@ -19,21 +19,25 @@ public class StoreToGalleryUtil {
     public static final StoreToGalleryUtil INSTANCE = new StoreToGalleryUtil();
     private final Executor executor = Executors.newSingleThreadExecutor();
 
-    public void storeToGallery(Context context, String path) {
+    public void storeToGallery(Context context, String path, String mimeType) {
         executor.execute(
-            () -> storeToGalleryAsync(context.getApplicationContext(), path)
+            () -> storeToGalleryAsync(context.getApplicationContext(), path, mimeType)
         );
     }
 
-    private void storeToGalleryAsync(Context context, String path) {
+    private void storeToGalleryAsync(Context context, String path, String mimeType) {
         String fileName = new File(path).getName();
 
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.TITLE, fileName);
-        values.put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4");
-        Uri uri = context.getContentResolver().insert(
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values
-        );
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+        Uri storeUri;
+        if (mimeType.startsWith("audio/")) {
+            storeUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+        } else {
+            storeUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+        }
+        Uri uri = context.getContentResolver().insert(storeUri, values);
 
         try (
             OutputStream outputStream = context.getContentResolver().openOutputStream(uri);

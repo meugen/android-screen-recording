@@ -7,7 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
-import android.hardware.display.DisplayManager;
+import android.content.res.Configuration;
 import android.media.projection.MediaProjectionManager;
 import android.os.Environment;
 import android.os.Handler;
@@ -15,7 +15,6 @@ import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
-import android.view.Display;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationChannelCompat;
@@ -24,12 +23,11 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
-import java.io.File;
 import java.io.IOException;
-import java.util.UUID;
 
 import meugeninua.screenrecording.MainActivity;
 import meugeninua.screenrecording.R;
+import meugeninua.screenrecording.app.ContextSingleton;
 
 public class ScreenRecorderService extends Service {
 
@@ -135,18 +133,15 @@ public class ScreenRecorderService extends Service {
     }
 
     private void flushRecordingAsync() {
-        File file = getExternalFilesDir(Environment.DIRECTORY_MOVIES);
-        if (!file.exists() && !file.mkdirs()) {
-            throw new RuntimeException("Directory " + file.getPath() + " is not created");
-        }
-        file = new File(file, UUID.randomUUID().toString() + ".mp4");
-        String filePath = file.getPath();
+        String videoFile = ContextSingleton.getOutputFileName(Environment.DIRECTORY_MOVIES, ".mp4");
+        String audioFile = ContextSingleton.getOutputFileName(Environment.DIRECTORY_MUSIC, ".wav");
 
         try {
-            screenRecorder.flashTo(filePath);
+            screenRecorder.flashTo(videoFile, audioFile);
             LocalBroadcastManager.getInstance(this)
-                .sendBroadcast(new Result(filePath).buildIntent());
-            Log.d(ScreenRecorder.TAG, "Recorded to path: " + filePath);
+                .sendBroadcast(new Result(videoFile, audioFile).buildIntent());
+            Log.d(ScreenRecorder.TAG, "Recorded to video path: " + videoFile);
+            Log.d(ScreenRecorder.TAG, "Recorded to audio path: " + audioFile);
         } catch (IOException e) {
             Log.e(ScreenRecorder.TAG, e.getMessage(), e);
         }
@@ -156,18 +151,14 @@ public class ScreenRecorderService extends Service {
         screenRecorder.setSeconds(params.getSeconds());
         screenRecorder.setManager((MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE));
         try {
+            Configuration configuration = getResources().getConfiguration();
             screenRecorder.continueRecording(
-                params.getActivityResult(), getDefaultDisplay(), handler
+                params.getActivityResult(), params.getRect(), configuration, handler
             );
         } catch (IOException e) {
             Log.e(ScreenRecorder.TAG, e.getMessage(), e);
             stopSelf();
         }
-    }
-
-    private Display getDefaultDisplay() {
-        DisplayManager displayManager = (DisplayManager) getSystemService(DISPLAY_SERVICE);
-        return displayManager.getDisplay(Display.DEFAULT_DISPLAY);
     }
 
     @Nullable
@@ -186,31 +177,40 @@ public class ScreenRecorderService extends Service {
     public static class Result {
 
         private static final String ACTION = ScreenRecorderService.class.getName();
-        private static final String EXTRA_PATH = "path";
+        private static final String EXTRA_VIDEO_PATH = "video_path";
+        private static final String EXTRA_AUDIO_PATH = "audio_path";
 
         public static IntentFilter buildIntentFilter() {
             return new IntentFilter(ACTION);
         }
 
-        private final String path;
+        private final String videoPath;
+        private final String audioPath;
 
-        public Result(String path) {
-            this.path = path;
+        public Result(String videoPath, String audioPath) {
+            this.videoPath = videoPath;
+            this.audioPath = audioPath;
         }
 
         public Result(Intent intent) {
             this(
-                intent.getStringExtra(EXTRA_PATH)
+                intent.getStringExtra(EXTRA_VIDEO_PATH),
+                intent.getStringExtra(EXTRA_AUDIO_PATH)
             );
         }
 
-        public String getPath() {
-            return path;
+        public String getAudioPath() {
+            return audioPath;
+        }
+
+        public String getVideoPath() {
+            return videoPath;
         }
 
         public Intent buildIntent() {
             Intent intent = new Intent(ACTION);
-            intent.putExtra(EXTRA_PATH, path);
+            intent.putExtra(EXTRA_AUDIO_PATH, audioPath);
+            intent.putExtra(EXTRA_VIDEO_PATH, videoPath);
             return intent;
         }
     }
