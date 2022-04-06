@@ -19,19 +19,27 @@ public class CyclicAudioBuffer {
 
     private final Deque<Data> deque = new LinkedList<>();
     private final long timeLimitMs;
-    private long prevTimeMs;
+    private long prevTimeMs = -1;
     private long totalTimeMs = 0L;
 
     public CyclicAudioBuffer(int secondsLimit) {
         this.timeLimitMs = TimeUnit.SECONDS.toMillis(secondsLimit);
+    }
+
+    public void start() {
         this.prevTimeMs = System.currentTimeMillis();
     }
 
     public void addBuffer(byte[] bytes, int count) {
+        if (prevTimeMs < 0) {
+            throw new RuntimeException("Buffer is not started");
+        }
         if (count == 0) return;
         Log.d("CyclicVideoBuffer", "prevTimeMs = " + prevTimeMs
             + ", currentTimeMs = " + System.currentTimeMillis());
-        Data data = new Data(bytes, count, System.currentTimeMillis() - prevTimeMs);
+        byte[] bytesCopy = new byte[bytes.length];
+        System.arraycopy(bytes, 0, bytesCopy, 0, bytes.length);
+        Data data = new Data(bytesCopy, count, System.currentTimeMillis() - prevTimeMs);
 
         prevTimeMs = System.currentTimeMillis();
         deque.addLast(data);

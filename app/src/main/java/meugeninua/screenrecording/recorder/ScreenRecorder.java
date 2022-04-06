@@ -7,6 +7,7 @@ import android.hardware.display.VirtualDisplay;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioPlaybackCaptureConfiguration;
+import android.media.AudioRecord;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -24,6 +25,7 @@ import androidx.annotation.NonNull;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import meugeninua.screenrecording.recorder.audio.AudioRecordConfig;
@@ -280,21 +282,24 @@ public class ScreenRecorder {
 
         @Override
         public void run() {
-            audioSource.audioRecord().startRecording();
+            AudioRecord audioRecord = audioSource.audioRecord();
+            audioRecord.startRecording();
 
             try {
+                audioBuffer.start();
                 byte[] bytes = new byte[audioSource.bufferSizeInBytes()];
                 while (!Thread.interrupted()) {
-                    int count = audioSource.audioRecord().read(bytes, 0, audioSource.bufferSizeInBytes());
+                    int count = audioRecord.read(bytes, 0, audioSource.bufferSizeInBytes());
                     Log.d(TAG, String.format("Read %d bytes", count));
+                    // Log.d(TAG, Arrays.toString(bytes));
                     if (count < 0) {
                         break;
                     }
                     audioBuffer.addBuffer(bytes, count);
                 }
             } finally {
-                audioSource.audioRecord().stop();
-                audioSource.audioRecord().release();
+                audioRecord.stop();
+                audioRecord.release();
             }
         }
     }
