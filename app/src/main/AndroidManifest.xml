@@ -14,7 +14,8 @@
             android:label="@string/app_name"
             android:roundIcon="@mipmap/ic_launcher_round"
             android:supportsRtl="true"
-            android:theme="@style/Theme.ScreenRecording">
+            android:theme="@style/Theme.ScreenRecording"
+            android:name=".app.App">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -24,7 +25,7 @@
         </activity>
 
         <service
-            android:name=".ScreenRecorderService"
+            android:name=".recorder.ScreenRecorderService"
             android:foregroundServiceType="mediaProjection"/>
 
         <provider

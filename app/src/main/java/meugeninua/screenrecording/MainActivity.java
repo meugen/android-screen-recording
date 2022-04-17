@@ -6,8 +6,8 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.graphics.Rect;
 import android.media.projection.MediaProjectionManager;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
@@ -19,10 +19,16 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+import androidx.window.layout.WindowMetricsCalculator;
 
 import java.util.Map;
 
 import meugeninua.screenrecording.databinding.ActivityMainBinding;
+import meugeninua.screenrecording.recorder.IScreenRecorderInterface;
+import meugeninua.screenrecording.recorder.ScreenRecorderParams;
+import meugeninua.screenrecording.recorder.ScreenRecorderService;
+import meugeninua.screenrecording.recorder.ScreenRecorderState;
+import meugeninua.screenrecording.utils.StoreToGalleryUtil;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -32,7 +38,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onReceive(Context context, Intent intent) {
             ScreenRecorderService.Result result = new ScreenRecorderService.Result(intent);
-            onGotRecordedPath(result.getPath());
+            onGotRecordedPath(result.getVideoPath(), result.getAudioPath());
         }
     };
     private final ServiceConnection connection = new ServiceConnection() {
@@ -124,10 +130,11 @@ public class MainActivity extends AppCompatActivity {
         binding.flushButton.setEnabled(state.isCanFlush());
     }
 
-    private void onGotRecordedPath(String path) {
+    private void onGotRecordedPath(String videoPath, String audioPath) {
         reloadState();
-        StoreToGalleryUtil.INSTANCE.storeToGallery(this, path);
-        binding.videoView.setVideoPath(path);
+        StoreToGalleryUtil.INSTANCE.storeToGallery(this, videoPath, "video/mp4");
+        StoreToGalleryUtil.INSTANCE.storeToGallery(this, audioPath, "audio/x-wav");
+        binding.videoView.setVideoPath(videoPath);
         binding.videoView.start();
     }
 
@@ -149,8 +156,10 @@ public class MainActivity extends AppCompatActivity {
     private void onContinueRecording(ActivityResult result) {
         if (result.getResultCode() != RESULT_OK) return;
         try {
+            WindowMetricsCalculator calculator = WindowMetricsCalculator.getOrCreate();
+            Rect rect = calculator.computeMaximumWindowMetrics(this).getBounds();
             ScreenRecorderState state = screenRecorderInterface.start(
-                new ScreenRecorderParams(seconds, result)
+                new ScreenRecorderParams(seconds, result, rect)
             );
             setupButtonEnabled(state);
         } catch (Throwable e) {
